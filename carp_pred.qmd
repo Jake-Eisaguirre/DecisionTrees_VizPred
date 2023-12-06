@@ -81,7 +81,7 @@ testDF <- joined_data %>%
 # create decision tree based on quality and all variables
 t_mod <- rpart(binned_viz ~ . , data = trainDF, method = "class")
 
-rpart.plot(t_mod, extra = 8+100, type=5)
+rpart.plot(t_mod, extra = 8+100, type=5, box.palette = list("green", "red", "yellow"))
 
 # predict based on model
 predMatrix <- predict(t_mod, testDF)
