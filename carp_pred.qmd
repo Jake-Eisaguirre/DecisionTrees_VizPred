@@ -1,0 +1,176 @@
+---
+title: "Carp"
+format: html
+editor: source
+---
+
+### Load Packages
+```{r}
+if (!require(librarian)){
+  install.packages("librarian")
+  library(librarian)
+}
+
+librarian::shelf(tidyverse, here, janitor, rpart, rpart.plot, randomForest, xgboost, reprtree)
+```
+
+### Dive Data 
+
+#### Load Dive Data
+```{r}
+
+raw_dive_data <- read_csv(here("data", "data.csv")) %>% 
+  clean_names() %>% 
+  select(c(year:visibility_ft))
+
+
+```
+
+#### Bin Dive Data
+```{r}
+
+binned_dive_data <- raw_dive_data %>% 
+  mutate(binned_viz = case_when(visibility_ft <= 10 ~ "red",
+                                visibility_ft > 20 ~ "green",
+                                between(visibility_ft, 10, 20) ~ "yellow"))
+```
+
+### Weather Data
+
+#### Load Weather Data
+```{r}
+
+weather_data <- read_csv(here("data", "weather_data.csv")) %>% 
+  clean_names() %>% 
+  mutate(year = as.numeric(year)) %>% 
+  rename_with(~ str_remove(., "x"), everything()) %>% 
+  mutate_if(is.character, as.numeric)
+
+```
+
+
+### Dive and Weather Data Combined 
+
+#### Joinon `year`, `month`, `day`, `hour`
+```{r}
+
+joined_data <- binned_dive_data %>% 
+  left_join(weather_data, by = c("year", "month", "day", "hour")) %>% 
+  select(!c(year:visibility_ft)) %>% 
+  mutate(binned_viz = as.factor(binned_viz))
+
+```
+
+
+### Build Model
+
+#### RPart
+```{r}
+
+# train/test split data
+set.seed(42)
+trainSize <- round(0.8 * nrow(joined_data))
+trainIndex <- sample(nrow(joined_data), trainSize)
+
+trainDF <- joined_data %>% 
+  dplyr::slice(trainIndex)%>%
+   add_row(binned_viz = "green", 
+          tide_ft = 5.000, 
+          wind_speed_m_s = 1.8,
+          wave_height_m = 0.72,
+          dom_period_sec = 8.33,
+          water_temp_c = 17.8,
+          three_day_temp = 17.8,
+          four_day_temp = 18.1,
+          seven_day_temp = 18.3,
+          two_day_wave = 0.6,
+          two_day_period = 7.3,
+          two_dw_two_dp = 8.0,
+          one_day_wind = 3.7,
+          three_day_wind = 5.1)
+
+testDF <- joined_data %>% 
+  dplyr::slice(-trainIndex)
+
+# create decision tree based on quality and all variables
+t_mod <- rpart(binned_viz ~ . , data = trainDF, method = "class")
+
+rpart.plot(t_mod, extra = 8+100, type=5)
+
+# predict based on model
+predMatrix <- predict(t_mod, testDF)
+
+# add predictions back to testDF
+predDF <- testDF %>% 
+  cbind(predMatrix)
+
+# add if else statement for absent or present based on prediction
+predDF <- predDF %>% 
+  mutate(prediction = case_when(red > 0.5 ~ "red",
+                                yellow > 0.5 ~ "yellow",
+                                green > 0.5 ~ "green"))
+
+# now get accuracy score by comparing model predictions to testDF
+sum(predDF$binned_viz == predDF$prediction)/nrow(testDF)
+  
+
+```
+
+#### Random Forest
+```{r}
+
+# train/test split data
+set.seed(42)
+trainSize <- round(0.8 * nrow(joined_data))
+trainIndex <- sample(nrow(joined_data), trainSize)
+
+trainDF <- joined_data %>% 
+  dplyr::slice(trainIndex) %>% 
+  drop_na() %>% 
+  add_row(binned_viz = "green", 
+          tide_ft = 5.000, 
+          wind_speed_m_s = 1.8,
+          wave_height_m = 0.72,
+          dom_period_sec = 8.33,
+          water_temp_c = 17.8,
+          three_day_temp = 17.8,
+          four_day_temp = 18.1,
+          seven_day_temp = 18.3,
+          two_day_wave = 0.6,
+          two_day_period = 7.3,
+          two_dw_two_dp = 8.0,
+          one_day_wind = 3.7,
+          three_day_wind = 5.1) %>% 
+  mutate(binned_viz = as.factor(binned_viz))
+
+testDF <- joined_data %>% 
+  dplyr::slice(-trainIndex) %>% 
+  drop_na()
+
+# random forest model
+bvForest <- randomForest(binned_viz ~ ., data = trainDF, importance = T, ntree=500)
+
+# predict on the model
+bv_pred <- predict(bvForest, testDF)
+
+# add prediction scores to testDF
+bv_pred <- testDF %>% 
+  cbind(bv_pred)
+
+# now get accuracy score by comparing model predictions to testDF
+sum(bv_pred$bv_pred == bv_pred$binned_viz)/nrow(testDF)
+
+# look at results - confusion matrix for out of bag (OOB) error
+print(bvForest)
+
+plot(bvForest, type="l")
+
+importance(bvForest)
+
+varImpPlot(bvForest, main="Variable Importance Plot")
+
+plot.getTree(bvForest, k=3, depth=20)
+
+
+```
+
