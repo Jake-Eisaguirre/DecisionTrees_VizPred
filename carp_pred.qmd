@@ -56,7 +56,7 @@ weather_data <- read_csv(here("data", "weather_data.csv")) %>%
 
 joined_data <- binned_dive_data %>% 
   left_join(weather_data, by = c("year", "month", "day", "hour")) %>% 
-  select(!c(year:visibility_ft)) %>% 
+  select(!c(year:visibility_ft, tide_ft)) %>% 
   mutate(binned_viz = as.factor(binned_viz))
 
 ```
@@ -72,14 +72,18 @@ set.seed(72)
 trainSize <- round(0.9 * nrow(joined_data))
 trainIndex <- sample(nrow(joined_data), trainSize)
 
+g_d <- joined_data %>% 
+  filter(binned_viz == "green")
+
 trainDF <- joined_data %>% 
+  #filter(!binned_viz == "green") %>% 
   dplyr::slice(trainIndex) 
 
 testDF <- joined_data %>% 
   dplyr::slice(-trainIndex)
 
 # create decision tree based on quality and all variables
-t_mod <- rpart(binned_viz ~ . , data = trainDF, method = "class")
+t_mod <- rpart(binned_viz ~ . , data = trainDF ,method='class')
 
 rpart.plot(t_mod, extra = 8+100, type=5, box.palette = list("green", "red", "yellow"))
 
@@ -97,7 +101,7 @@ predDF <- predDF %>%
                                 green > 0.34 ~ "green"))
 
 # now get accuracy score by comparing model predictions to testDF
-sum(predDF$binned_viz == predDF$prediction)/nrow(testDF)
+sum(predDF$binned_viz == predDF$prediction)/nrow(joined_data)
   
 
 ```
@@ -107,26 +111,12 @@ sum(predDF$binned_viz == predDF$prediction)/nrow(testDF)
 
 # train/test split data
 set.seed(42)
-trainSize <- round(0.8 * nrow(joined_data))
+trainSize <- round(1 * nrow(joined_data))
 trainIndex <- sample(nrow(joined_data), trainSize)
 
 trainDF <- joined_data %>% 
   dplyr::slice(trainIndex) %>% 
   drop_na() %>% 
-  add_row(binned_viz = "green", 
-          tide_ft = 5.000, 
-          wind_speed_m_s = 1.8,
-          wave_height_m = 0.72,
-          dom_period_sec = 8.33,
-          water_temp_c = 17.8,
-          three_day_temp = 17.8,
-          four_day_temp = 18.1,
-          seven_day_temp = 18.3,
-          two_day_wave = 0.6,
-          two_day_period = 7.3,
-          two_dw_two_dp = 8.0,
-          one_day_wind = 3.7,
-          three_day_wind = 5.1) %>% 
   mutate(binned_viz = as.factor(binned_viz))
 
 testDF <- joined_data %>% 
