@@ -1,0 +1,57 @@
+---
+title: "mugu_vizpred"
+format: html
+editor: visual
+---
+
+### Load Packages
+```{r}
+if (!require(librarian)){
+  install.packages("librarian")
+  library(librarian)
+}
+
+librarian::shelf(tidyverse, here, janitor, rpart, rpart.plot, randomForest)
+```
+
+### Dive Data 
+
+#### Load Dive Data
+```{r}
+
+raw_dive_data <- read_csv(here("data", "huen_dum.csv")) %>% 
+  clean_names() %>% 
+  select(c(year:visibility_ft))
+
+
+```
+
+#### Bin Dive Data
+```{r}
+
+binned_dive_data <- raw_dive_data %>% 
+  mutate(binned_viz = case_when(visibility_ft <= 10 ~ "red",
+                                visibility_ft > 19 ~ "green",
+                                between(visibility_ft, 10, 18) ~ "yellow"))
+```
+
+### Weather Data
+
+#### Load Weather Data
+```{r}
+
+weather_data <- read_csv(here("data", "weather_data.csv")) %>% 
+  clean_names() %>% 
+  mutate(year = as.numeric(year)) %>% 
+  rename_with(~ str_remove(., "x"), everything()) %>% 
+  mutate_if(is.character, as.numeric)
+
+```
+
+```{r}
+joined_data <- binned_dive_data %>% 
+  left_join(weather_data, by = c("year", "month", "day", "hour")) %>% 
+  select(!c(year:visibility_ft, tide_ft)) %>% 
+  mutate(binned_viz = as.factor(binned_viz))
+```
+
