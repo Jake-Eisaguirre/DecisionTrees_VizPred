@@ -5,6 +5,7 @@ editor: visual
 ---
 
 ### Load Packages
+
 ```{r}
 if (!require(librarian)){
   install.packages("librarian")
@@ -14,39 +15,43 @@ if (!require(librarian)){
 librarian::shelf(tidyverse, here, janitor, rpart, rpart.plot, randomForest)
 ```
 
-### Dive Data 
+### Dive Data
 
 #### Load Dive Data
+
 ```{r}
 
 raw_dive_data <- read_csv(here("data", "huen_dum.csv")) %>% 
   clean_names() %>% 
-  select(c(year:visibility_ft))
+  select(!c(location, map_block))
 
 
 ```
 
 #### Bin Dive Data
+
 ```{r}
 
 binned_dive_data <- raw_dive_data %>% 
   mutate(binned_viz = case_when(visibility_ft <= 10 ~ "red",
-                                visibility_ft > 19 ~ "green",
-                                between(visibility_ft, 10, 18) ~ "yellow"))
+                                visibility_ft > 20 ~ "green",
+                                between(visibility_ft, 10, 20) ~ "yellow"))
 ```
 
 ### Weather Data
 
 #### Load Weather Data
+
 ```{r}
 
 weather_data <- read_csv(here("data", "weather_data.csv")) %>% 
   clean_names() %>% 
   mutate(year = as.numeric(year)) %>% 
-  rename_with(~ str_remove(., "x"), everything()) %>% 
+  #rename_with(~ str_remove(., "x"), everything()) %>% 
   mutate_if(is.character, as.numeric)
 
 ```
+
 
 ```{r}
 joined_data <- binned_dive_data %>% 
@@ -55,3 +60,43 @@ joined_data <- binned_dive_data %>%
   mutate(binned_viz = as.factor(binned_viz))
 ```
 
+### Build Model
+
+#### RPart
+```{r}
+
+# train/test split data
+set.seed(12)
+trainSize <- round(0.8 * nrow(joined_data))
+trainIndex <- sample(nrow(joined_data), trainSize)
+
+trainDF <- joined_data %>% 
+  #filter(!binned_viz == "green") %>% 
+  dplyr::slice(trainIndex) 
+
+testDF <- joined_data %>% 
+  dplyr::slice(-trainIndex)
+
+# create decision tree based on quality and all variables
+t_mod <- rpart(binned_viz ~ . , data = trainDF, method='class', control=rpart.control(minsplit=3, cp=0.001))
+
+rpart.plot(t_mod, extra = 8+100, type=5, box.palette = list("green", "red", "yellow"))
+
+# predict based on model
+predMatrix <- predict(t_mod, testDF)
+
+# add predictions back to testDF
+predDF <- testDF %>% 
+  cbind(predMatrix)
+
+# add if else statement for absent or present based on prediction
+predDF <- predDF %>% 
+  mutate(prediction = case_when(red > 0.34 ~ "red",
+                                yellow > 0.34 ~ "yellow",
+                                green > 0.34 ~ "green"))
+
+# now get accuracy score by comparing model predictions to testDF
+sum(predDF$binned_viz == predDF$prediction)/nrow(testDF)
+  
+
+```
